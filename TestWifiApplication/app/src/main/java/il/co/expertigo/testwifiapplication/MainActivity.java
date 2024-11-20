@@ -17,6 +17,9 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiManager;
 import android.net.wifi.WifiNetworkSpecifier;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.PatternMatcher;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.List;
@@ -24,8 +27,8 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     public static final int REQUEST_CODE = 123;
-    public static final String SSID = "GNSS-3808414";
-    private String[] permissions = new String[]{
+    //public static final String SSID = "GNSS-3808414";
+    private final String[] permissions = new String[]{
             Manifest.permission.ACCESS_NETWORK_STATE,
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_WIFI_STATE,
@@ -36,8 +39,10 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.CHANGE_WIFI_MULTICAST_STATE,
     };
     private WifiManager wifiManager;
+    private final Handler handler = new Handler();
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private TextView lblMessage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,6 +60,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             startSearchingForGnssWifi();
         }
+        lblMessage = findViewById(R.id.lblMessage);
     }
 
     private void startSearchingForGnssWifi() {
@@ -91,12 +97,14 @@ public class MainActivity extends AppCompatActivity {
 
         connectivityManager = (ConnectivityManager)
                 getSystemService(Context.CONNECTIVITY_SERVICE);
-        NetworkSpecifier networkSpecifier = new WifiNetworkSpecifier.Builder().setSsid(SSID).build();
+        NetworkSpecifier networkSpecifier = new WifiNetworkSpecifier.Builder().setSsidPattern(new PatternMatcher("GNSS-", PatternMatcher.PATTERN_PREFIX)).build();
 
 
         NetworkRequest networkRequest =
                 new NetworkRequest.Builder()
                         .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        //.addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR)
+
                         .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                         .setNetworkSpecifier(networkSpecifier)
                         .build();
@@ -104,11 +112,26 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onAvailable(@NonNull Network network) {
                 super.onAvailable(network);
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        lblMessage.setText("it worked!");
+                    }
+                });
+
+                Toast.makeText(MainActivity.this, "it worked!", Toast.LENGTH_SHORT).show();
             }
 
             @Override
             public void onUnavailable() {
                 super.onUnavailable();
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        lblMessage.setText("failed...");
+                    }
+                });
+                Toast.makeText(MainActivity.this, "failed...", Toast.LENGTH_SHORT).show();
             }
 
             @Override
