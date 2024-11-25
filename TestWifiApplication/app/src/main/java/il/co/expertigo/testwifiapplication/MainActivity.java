@@ -5,7 +5,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.LinkProperties;
@@ -19,15 +22,24 @@ import android.net.wifi.WifiNetworkSpecifier;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.PatternMatcher;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     public static final int REQUEST_CODE = 123;
-    //public static final String SSID = "GNSS-3808414";
+    public static final String SSID = "GNSS-3377323";
     private final String[] permissions = new String[]{
             Manifest.permission.ACCESS_NETWORK_STATE,
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -43,6 +55,8 @@ public class MainActivity extends AppCompatActivity {
     private ConnectivityManager connectivityManager;
     private ConnectivityManager.NetworkCallback networkCallback;
     private TextView lblMessage;
+    private Button btnSearchForGNSS, btnGetBattery;
+    private Network network;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,10 +69,13 @@ public class MainActivity extends AppCompatActivity {
                 break;
             }
         }
+        btnSearchForGNSS = findViewById(R.id.btnSearchForGNSS);
+        btnGetBattery = findViewById(R.id.btnGetBattery);
         if (!hasPermission) {
             requestPermissions(permissions, REQUEST_CODE);
         } else {
-            startSearchingForGnssWifi();
+            //startSearchingForGnssWifi();
+            btnSearchForGNSS.setEnabled(true);
         }
         lblMessage = findViewById(R.id.lblMessage);
     }
@@ -90,11 +107,7 @@ public class MainActivity extends AppCompatActivity {
             scanFailure();
         }
 
-
-
-         */
-
-
+        */
         connectivityManager = (ConnectivityManager)
                 getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkSpecifier networkSpecifier = new WifiNetworkSpecifier.Builder().setSsidPattern(new PatternMatcher("GNSS-", PatternMatcher.PATTERN_PREFIX)).build();
@@ -112,10 +125,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onAvailable(@NonNull Network network) {
                 super.onAvailable(network);
+                MainActivity.this.network = network;
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
-                        lblMessage.setText("it worked!");
+                        lblMessage.setText("available");
+                        btnSearchForGNSS.setEnabled(false);
                     }
                 });
 
@@ -125,10 +140,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onUnavailable() {
                 super.onUnavailable();
+                MainActivity.this.network = null;
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
-                        lblMessage.setText("failed...");
+                        lblMessage.setText("unavailable");
+                        btnSearchForGNSS.setEnabled(true);
                     }
                 });
                 Toast.makeText(MainActivity.this, "failed...", Toast.LENGTH_SHORT).show();
@@ -152,16 +169,32 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onLosing(@NonNull Network network, int maxMsToLive) {
                 super.onLosing(network, maxMsToLive);
+                MainActivity.this.network = null;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        lblMessage.setText("losing wifi");
+                    }
+                });
+
             }
 
             @Override
             public void onLost(@NonNull Network network) {
                 super.onLost(network);
+                MainActivity.this.network = null;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        lblMessage.setText("wifi lost");
+                        btnSearchForGNSS.setEnabled(true);
+                    }
+                });
             }
 
         };
 
-        connectivityManager.requestNetwork(networkRequest, networkCallback, 20000);
+        connectivityManager.requestNetwork(networkRequest, networkCallback, 30000);
 
 
 
@@ -170,10 +203,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStop() {
         super.onStop();
-        connectivityManager.unregisterNetworkCallback(networkCallback);
+        if (connectivityManager != null) {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+        }
+        network = null;
     }
 
-    /*
+
     private void scanSuccess() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             // TODO: Consider calling
@@ -217,7 +253,7 @@ public class MainActivity extends AppCompatActivity {
 
     }
 
-     */
+
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
@@ -233,7 +269,92 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
         }
-        if (hasPermission) startSearchingForGnssWifi();
+        if (hasPermission){
+            //startSearchingForGnssWifi();
+            btnSearchForGNSS.setEnabled(true);
+        }else{
+            lblMessage.setText("no permissions..");
+        }
+
+    }
+
+    public void btnSearchForGNSS(View view) {
+        btnSearchForGNSS.setEnabled(false);
+        lblMessage.setText("wait..");
+        startSearchingForGnssWifi();
+    }
+
+    public void btnGetBatteryClicked(View view) {
+        if(network == null) {
+            lblMessage.setText("no GNSS network");
+            btnSearchForGNSS.setEnabled(true);
+            btnGetBattery.setEnabled(false);
+            return;
+        }
+        lblMessage.setText("getting battery..");
+        btnGetBattery.setEnabled(false);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                HttpURLConnection httpURLConnection = null;
+                try {
+                    httpURLConnection = (HttpURLConnection) network.openConnection(new URL("http://192.168.1.1/power_status_get.cmd?urlStringId=admin&_=1732177460973"));
+                    Http.sendHttpRequest(httpURLConnection, "application/json", "GET", new Http.HttpWork() {
+                        @Override
+                        public void work(HttpURLConnection connection) throws IOException {
+                            int code;
+                            if((code = connection.getResponseCode()) == 200){
+                                byte[] buffer = new byte[1024];
+                                int actuallyRead;
+                                int pos = 0;
+                                while ((actuallyRead = connection.getInputStream().read(buffer, pos, buffer.length - pos)) > 0){
+                                    pos += actuallyRead;
+                                }
+                                final String response = new String(buffer, 0, pos);
+                                Log.d("ELAD", response);
+                                handler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+
+                                        try {
+                                            JSONObject jsonBattery = new JSONObject(response);
+                                            String volt_bat1 = jsonBattery.getString("volt_bat1");
+                                            String volt_bat2 = jsonBattery.getString("volt_bat2");
+                                            lblMessage.setText("bat1: " + volt_bat1 + ", bat2: " + volt_bat2);
+                                        } catch (JSONException e) {
+                                            e.printStackTrace();
+                                            lblMessage.setText("invalid json");
+                                        }
+                                        btnGetBattery.setEnabled(true);
+                                    }
+                                });
+                            }else{
+                                handler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        lblMessage.setText("failed getting battery.. code" + code);
+                                        btnGetBattery.setEnabled(true);
+                                    }
+                                });
+                            }
+                        }
+                    });
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            lblMessage.setText("failed getting battery..");
+                            btnGetBattery.setEnabled(true);
+                        }
+                    });
+                }finally {
+                    if (httpURLConnection != null) {
+                        httpURLConnection.disconnect();
+                    }
+                }
+            }
+        }).start();
 
     }
 }
